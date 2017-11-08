@@ -1,0 +1,130 @@
+---
+title: "Week 4, Prediction assignment"
+author: "patrikin"
+date: "11/7/2017"
+output: html_document
+---
+
+## Prediction of weight exercise training categories from body movement data
+
+### Instructions
+Copied from https://www.coursera.org/learn/practical-machine-learning/peer/R43St/prediction-assignment-writeup):
+
+"The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with.
+You should create a report describing:
+- how you built your model
+- how you used cross validation
+- what you think the expected out of sample error is, and
+- why you made the choices you did.
+
+You will also use your prediction model to predict 20 different test cases."
+
+
+### This is what I did:
+
+1. Loading and cleaning up training data.
+2. Split into training and test set.
+3. Feature selection
+4. Figure out what cross validation to use.
+5. Build model.
+6. Test model on test set.
+7. Determine out of sample error.
+8. Predict 20 test cases.
+
+
+#### 1. Loading and cleaning up testing data
+While importing data, I'm setting empty cells and cells with 'NA' to NA.
+```{r}
+data <- read.csv("pml-training.csv", na.strings = c("", "NA"))
+```
+
+Some columns have NAs, exclude those columns.
+Should the model not work, could revisit this step and try imputing missing data.
+```{r}
+ncol(data)
+data2 <- data[, colSums(is.na(data)) == 0]
+ncol(data2)
+any(is.na(data2))
+```
+
+Remove columns that don't contain any measurement variables related to belt, forearm, arm, or dumbell:
+```{r}
+remove <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window")
+
+data3 <- data2[, !(colnames(data2) %in% remove)]
+ncol(data3)
+```
+#### 2. Split training dataset into training and test sets
+I'm allocating 70% of the data to the training set because that what was most commonly done in the lectures. The classe variable is being predicted.
+```{r}
+library(caret)
+inTrain <- createDataPartition(y = data3$classe, p = 0.7, list = FALSE)
+training <- data3[inTrain, ]
+testing <- data3[-inTrain,]
+dim(training); dim(testing)
+```
+
+#### 3. Feature selection
+Are there covariates that are near zero, and that can be excluded? According to notes from Lesson 6 in Week 2:
+```{r}
+nzv <- nearZeroVar(training, saveMetrics = TRUE)
+nzv
+```
+There are no near zero variables.
+
+Are there any highly correlated variables? 
+Inspired by lecture notes, code base on caret manual (http://topepo.github.io/caret/pre-processing.html#identifying-correlated-predictors), but using a higher cutoff to determine correlation (0.9 vs. 0.75), just because, why not? Can always revisit if model doesn't work.
+```{r}
+dim(training)
+descrCor <- cor(training[, -53])
+
+highlyCorDescr <- findCorrelation(descrCor, cutoff = .90, names = FALSE)
+highlyCorDescr
+
+training2 <- training[, -highlyCorDescr]
+dim(training2)
+```
+Seven variables are highly correlated, excluded those and made the training set named training2.
+
+
+#### 4. Figure out what cross validation to use
+I'm trying repeated k fold cross validation, because that's what Max Kuhn likes better than 'non-repeated' k fold cross validation (http://appliedpredictivemodeling.com/blog/2014/11/27/vpuig01pqbklmi72b8lcl3ij5hj2qm). I'm setting fold length k (number argument in the fitControl function below) and repeat number (repeats argument) to 10, respectively, as described in the caret manual (http://topepo.github.io/caret/model-training-and-tuning.html#control).
+```{r}
+fitControl <- trainControl(method = "repeatedcv", number = 10, repeats = 10)
+```
+
+#### 5. Building the model
+I'm trying random forests because according to the lectures, random forests are among the most widely used and accurate model fitting methods.
+A saved the model fit output previously and am reloading it here, because I don't want to have to run it again.
+```{r}
+#modFit <- train(classe ~., method = "rf", data = training2, trControl = fitControl)
+#saveRDS(modFit, "modFit.RDS")
+modFit <- readRDS("modFit.RDS")
+```
+
+#### 6. Testing model on test set
+In test set, keep only the variables that were used for model training.
+```{r}
+ncol(testing)
+testing2 <- testing[, colnames(testing) %in% colnames(training2)]
+ncol(testing2)
+pred <- predict(modFit, newdata = testing2)
+```
+
+#### 7. Determining out of sample error
+```{r}
+confusionMatrix(testing2$classe, pred)
+```
+
+Thus, the out of sample accuracy is 0.9937, and thus, the out of sample error is 0.0063.
+
+#### 8. Predicting on the test set
+Keeping only variables that were used in the test set.
+
+```{r}
+testSet <- read.csv("pml-testing.csv")
+testSet2 <- testSet[, colnames(testSet) %in% colnames(training2)]
+dim(testSet2)
+predict(modFit, newdata = testSet2)
+```
+I used those predictions for the prediction assignment, and they were all correct. Thus, I am going with this model.
